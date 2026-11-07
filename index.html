@@ -1,0 +1,49 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Canceller practice</title>
+<style>
+body{margin:0;background:#051316;color:#eef6f4;font:17px/1.5 -apple-system,system-ui,Segoe UI,Roboto,sans-serif}
+main{max-width:560px;margin:0 auto;padding:28px 20px 60px}
+h1{font-size:24px;margin:0 0 4px}.tag{display:inline-block;background:#152a2d;color:#45f8d1;border-radius:999px;padding:2px 10px;font-size:13px;margin-bottom:18px}
+.card{background:#0e1a1c;border:1px solid #1b2c2f;border-radius:14px;padding:16px 18px;margin:14px 0}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:14px;word-break:break-all;color:#b9cbc8}
+button{display:block;width:100%;margin:12px 0 0;padding:16px;border:0;border-radius:12px;font:600 18px system-ui,sans-serif;background:#45f8d1;color:#051316}
+button:disabled{opacity:.4}#status{margin-top:16px;white-space:pre-line}.ok{color:#45f8d1}.bad{color:#ff8f8f}a{color:#45f8d1}
+</style></head><body><main>
+<h1>Canceller practice</h1><span class="tag">Sepolia test network · test coins only</span>
+<div class="card"><b>What is queued</b><br>The test Safe asked to <b>replace the vault's 5 signers with a thief's address</b>.
+It would run after <b>9 Nov 2026, 12:15 UTC</b>, unless a canceller stops it.<div class="mono" style="margin-top:8px">thief: 0x37801c6878938c9a16185e6DB13345526b6d67F2<br>timelock: 0xAEF4DF55837B284b9c0e0E7AA87C1cda43fA81f0</div></div>
+<div class="card"><b>Your job</b><br>1. Make sure MetaMask shows your <b>kUSDT canceller</b> account (0x5657…d542).<br>2. Tap <b>Cancel it</b>. MetaMask asks to connect (choose the canceller), then asks you to confirm the cancel.</div>
+<button id="connect">Connect MetaMask</button><button id="cancel">Cancel it</button>
+<div id="status" class="card">Not connected yet.</div>
+<script>
+const MANAGER='0xAEF4DF55837B284b9c0e0E7AA87C1cda43fA81f0', DATA='0xd6bb62c6000000000000000000000000c4747f7bc83d0625c3a7793571b0883cc320c07d00000000000000000000000003d2c68bceca335253376988c2f1fa318ff4375d000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000e4a37726620000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000500000000000000000000000037801c6878938c9a16185e6db13345526b6d67f200000000000000000000000037801c6878938c9a16185e6db13345526b6d67f200000000000000000000000037801c6878938c9a16185e6db13345526b6d67f200000000000000000000000037801c6878938c9a16185e6db13345526b6d67f200000000000000000000000037801c6878938c9a16185e6db13345526b6d67f200000000000000000000000000000000000000000000000000000000', CANCELLER='0x5657632648C8fFbF394035a1263E4728e984d542'.toLowerCase(), SEPOLIA='0xaa36a7';
+const $=id=>document.getElementById(id);
+function say(t,c){$('status').className='card '+(c||'');$('status').textContent=t}
+async function toSepolia(){
+  try{await ethereum.request({method:'wallet_switchEthereumChain',params:[{chainId:SEPOLIA}]})}
+  catch(e){if(e&&e.code===4902)await ethereum.request({method:'wallet_addEthereumChain',params:[{chainId:SEPOLIA,chainName:'Sepolia',nativeCurrency:{name:'Sepolia ETH',symbol:'ETH',decimals:18},rpcUrls:['https://ethereum-sepolia-rpc.publicnode.com'],blockExplorerUrls:['https://sepolia.etherscan.io']}]});else throw e}
+}
+/** One prompt for the account and Sepolia together, so MetaMask's permission covers the network it sends on. */
+async function connect(){
+  if(!window.ethereum){location.href='https://metamask.app.link/dapp/'+location.host+location.pathname;return null}
+  try{await ethereum.request({method:'wallet_requestPermissions',params:[{eth_accounts:{},'endowment:permitted-chains':{caveats:[{type:'restrictNetworkSwitching',value:[SEPOLIA]}]}}]})}
+  catch(e){if(e&&e.code===4001)throw e;await ethereum.request({method:'eth_requestAccounts'})}
+  await toSepolia();
+  const accounts=await ethereum.request({method:'eth_accounts'})||[];
+  const found=accounts.find(a=>typeof a==='string'&&a.toLowerCase()===CANCELLER);
+  if(!found){say('MetaMask gave: '+(accounts.join(', ')||'no account')+'.\nPick your canceller (0x5657…d542) when MetaMask asks which account to connect, then tap the button again.','bad');return null}
+  return found;
+}
+$('connect').onclick=async()=>{try{const a=await connect();if(a){say('Connected as your canceller on Sepolia. Now tap Cancel it.','ok');$('cancel').disabled=false}}catch(e){say('Not connected: '+(e&&(e.message||e.code)||e),'bad')}};
+$('cancel').onclick=async()=>{
+  $('cancel').disabled=true;
+  try{
+    const from=await connect(); if(!from){$('cancel').disabled=false;return}
+    const hash=await ethereum.request({method:'eth_sendTransaction',params:[{from:from,to:MANAGER,data:DATA,value:'0x0'}]});
+    say('Sent. Waiting for the test network…\n'+hash);
+    for(;;){await new Promise(r=>setTimeout(r,2500));
+      const r=await ethereum.request({method:'eth_getTransactionReceipt',params:[hash]});
+      if(r){if(r.status==='0x1'){$('status').className='card ok';$('status').innerHTML='Cancelled. The thief\'s change can never run.<br><a href="https://sepolia.etherscan.io/tx/'+hash+'">See it on Etherscan</a>'}else{say('The cancel failed on chain: '+hash,'bad');$('cancel').disabled=false}break}}
+  }catch(e){say('Not sent: '+(e&&(e.message||e.code)||e)+' (code '+(e&&e.code)+')','bad');$('cancel').disabled=false}
+};
+</script></main></body></html>
