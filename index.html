@@ -1,49 +1,311 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Canceller practice</title>
+<meta name="robots" content="noindex"><title>kUSDT canceller</title>
 <style>
-body{margin:0;background:#051316;color:#eef6f4;font:17px/1.5 -apple-system,system-ui,Segoe UI,Roboto,sans-serif}
-main{max-width:560px;margin:0 auto;padding:28px 20px 60px}
-h1{font-size:24px;margin:0 0 4px}.tag{display:inline-block;background:#152a2d;color:#45f8d1;border-radius:999px;padding:2px 10px;font-size:13px;margin-bottom:18px}
+:root{color-scheme:dark}
+body{margin:0;background:#051316;color:#eef6f4;font:17px/1.5 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif}
+main{max-width:560px;margin:0 auto;padding:24px 18px 64px}
+h1{font-size:24px;margin:0 0 4px}
+.tag{display:inline-block;background:#152a2d;color:#45f8d1;border-radius:999px;padding:2px 10px;font-size:13px}
 .card{background:#0e1a1c;border:1px solid #1b2c2f;border-radius:14px;padding:16px 18px;margin:14px 0}
-.mono{font-family:ui-monospace,Menlo,monospace;font-size:14px;word-break:break-all;color:#b9cbc8}
-button{display:block;width:100%;margin:12px 0 0;padding:16px;border:0;border-radius:12px;font:600 18px system-ui,sans-serif;background:#45f8d1;color:#051316}
-button:disabled{opacity:.4}#status{margin-top:16px;white-space:pre-line}.ok{color:#45f8d1}.bad{color:#ff8f8f}a{color:#45f8d1}
+.card.alarm{border-color:#ff8f8f}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:13px;word-break:break-all;color:#b9cbc8}
+.muted{color:#8aa3a0;font-size:15px}
+.badge{display:inline-block;border-radius:6px;padding:1px 8px;font-size:13px;font-weight:600;margin-bottom:8px}
+.badge.red{background:#3a1416;color:#ff8f8f}.badge.grey{background:#1b2c2f;color:#b9cbc8}
+button{display:block;width:100%;margin:14px 0 0;padding:15px;border:0;border-radius:12px;font:600 18px system-ui,sans-serif;background:#45f8d1;color:#051316}
+button.second{background:transparent;color:#45f8d1;border:1px solid #2b5450}
+button:disabled{opacity:.4}
+#status{white-space:pre-line}.ok{color:#45f8d1}.bad{color:#ff8f8f}a{color:#45f8d1}
 </style></head><body><main>
-<h1>Canceller practice</h1><span class="tag">Sepolia test network · test coins only</span>
-<div class="card"><b>What is queued</b><br>The test Safe asked to <b>replace the vault's 5 signers with a thief's address</b>.
-It would run after <b>9 Nov 2026, 12:15 UTC</b>, unless a canceller stops it.<div class="mono" style="margin-top:8px">thief: 0x37801c6878938c9a16185e6DB13345526b6d67F2<br>timelock: 0xAEF4DF55837B284b9c0e0E7AA87C1cda43fA81f0</div></div>
-<div class="card"><b>Your job</b><br>1. Make sure MetaMask shows your <b>kUSDT canceller</b> account (0x5657…d542).<br>2. Tap <b>Cancel it</b>. MetaMask asks to connect (choose the canceller), then asks you to confirm the cancel.</div>
-<button id="connect">Connect MetaMask</button><button id="cancel">Cancel it</button>
-<div id="status" class="card">Not connected yet.</div>
+<h1>kUSDT canceller</h1><span class="tag" id="mode"></span>
+<div id="summary" class="card">Reading the vaults…</div>
+<div id="ops"></div>
+<div id="status" class="card" hidden></div>
+<button id="refresh" class="second">Check again</button>
+<p class="muted" id="foot"></p>
 <script>
-const MANAGER='0xAEF4DF55837B284b9c0e0E7AA87C1cda43fA81f0', DATA='0xd6bb62c6000000000000000000000000c4747f7bc83d0625c3a7793571b0883cc320c07d00000000000000000000000003d2c68bceca335253376988c2f1fa318ff4375d000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000e4a37726620000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000500000000000000000000000037801c6878938c9a16185e6db13345526b6d67f200000000000000000000000037801c6878938c9a16185e6db13345526b6d67f200000000000000000000000037801c6878938c9a16185e6db13345526b6d67f200000000000000000000000037801c6878938c9a16185e6db13345526b6d67f200000000000000000000000037801c6878938c9a16185e6db13345526b6d67f200000000000000000000000000000000000000000000000000000000', CANCELLER='0x5657632648C8fFbF394035a1263E4728e984d542'.toLowerCase(), SEPOLIA='0xaa36a7';
-const $=id=>document.getElementById(id);
-function say(t,c){$('status').className='card '+(c||'');$('status').textContent=t}
-async function toSepolia(){
-  try{await ethereum.request({method:'wallet_switchEthereumChain',params:[{chainId:SEPOLIA}]})}
-  catch(e){if(e&&e.code===4902)await ethereum.request({method:'wallet_addEthereumChain',params:[{chainId:SEPOLIA,chainName:'Sepolia',nativeCurrency:{name:'Sepolia ETH',symbol:'ETH',decimals:18},rpcUrls:['https://ethereum-sepolia-rpc.publicnode.com'],blockExplorerUrls:['https://sepolia.etherscan.io']}]});else throw e}
+// Built by build.mjs: the networks and the vault's owner calls, from the deployment and the contracts' ABIs.
+const CONFIG = {"mainnet":{"label":"Ethereum · BNB Chain","canceller":"0x5657632648C8fFbF394035a1263E4728e984d542","safe":"0x69AD98869983757828841c89fd25dCEF440749b1","monitors":["https://monitor.kaspa.news"],"networks":[{"key":"eth","name":"Ethereum","chainId":1,"manager":null,"vault":null,"fromBlock":0,"decimals":6,"token":"USDT","explorer":"https://etherscan.io","chunk":10000,"rpcs":["https://mainnet.gateway.tenderly.co","https://rpc.flashbots.net","https://rpc.mevblocker.io","https://ethereum-rpc.publicnode.com"],"add":null},{"key":"bsc","name":"BNB Chain","chainId":56,"manager":null,"vault":null,"fromBlock":0,"decimals":18,"token":"BSC-USD","explorer":"https://bscscan.com","chunk":50000,"rpcs":["https://bsc-rpc.publicnode.com"],"add":{"chainName":"BNB Smart Chain","nativeCurrency":{"name":"BNB","symbol":"BNB","decimals":18},"rpcUrls":["https://bsc-dataseed.bnbchain.org"],"blockExplorerUrls":["https://bscscan.com"]}}]},"practice":{"label":"Sepolia practice · test coins only","canceller":"0x5657632648C8fFbF394035a1263E4728e984d542","safe":"0xc4747f7Bc83d0625c3a7793571B0883Cc320c07d","monitors":[],"networks":[{"key":"sepolia","name":"Sepolia","chainId":11155111,"manager":"0xAEF4DF55837B284b9c0e0E7AA87C1cda43fA81f0","vault":"0x03d2c68bceca335253376988c2f1fa318ff4375d","fromBlock":12083000,"decimals":6,"token":"test USDT","explorer":"https://sepolia.etherscan.io","chunk":5000,"rpcs":["https://sepolia.gateway.tenderly.co","https://ethereum-sepolia-rpc.publicnode.com"],"add":{"chainName":"Sepolia","nativeCurrency":{"name":"Sepolia ETH","symbol":"ETH","decimals":18},"rpcUrls":["https://ethereum-sepolia-rpc.publicnode.com"],"blockExplorerUrls":["https://sepolia.etherscan.io"]}}]}};
+const CALLS = {"0xbd49362d":{"name":"setSigners","label":"Replace the vault's 5 signers","role":"GOVERNOR","params":[["new signers","address[5]","addrs"]]},"0xa3772662":{"name":"setSigners","label":"Replace the vault's signers","role":"GOVERNOR","params":[["new signers","address[]","addrs"]]},"0x286a9acc":{"name":"setFees","label":"Change the bridge fees","role":"GOVERNOR","params":[["fee","uint16","bps"],["smallest deposit fee","uint256","amount"],["smallest payout fee","uint256","amount"]]},"0x4eddea06":{"name":"setDepositLimits","label":"Change the deposit limits","role":"GOVERNOR","params":[["smallest deposit","uint256","amount"],["largest deposit","uint256","amount"]]},"0x135d792c":{"name":"setReleaseLimits","label":"Change the payout limits","role":"GOVERNOR","params":[["capacity","uint256","amount"],["refill per second","uint256","amount"]]},"0x4fb7041f":{"name":"setPayoutDelay","label":"Change the payout wait","role":"GOVERNOR","params":[["new wait","uint64","secs"]]},"0xad3b1b47":{"name":"withdrawFees","label":"Withdraw the collected fees","role":"GOVERNOR","params":[["to","address","addr"],["amount","uint256","amount"]]},"0xf2fde38b":{"name":"transferOwnership","label":"Hand the vault to a new owner","role":"GOVERNOR","params":[["new owner","address","addr"]]},"0x8a0dac4a":{"name":"setGuardian","label":"Change the vault's guardian (who can pause)","role":"EMERGENCY","params":[["new guardian","address","addr"]]},"0x3f4ba83a":{"name":"unpause","label":"Unpause the vault","role":"EMERGENCY","params":[]},"0xb5503895":{"name":"cancelRelease","label":"Cancel a queued payout","role":"EMERGENCY","params":[["payout","bytes32","hash"]]},"0xa6366859":{"name":"cancelRefund","label":"Cancel a queued refund","role":"EMERGENCY","params":[["refund number","uint64","num"]]},"0x8456cb59":{"name":"pause","label":"Pause the vault","role":"PAUSER","params":[]},"0x79ba5097":{"name":"acceptOwnership","label":"Accept the vault's ownership","role":"ADMIN","params":[]},"0x25c471a0":{"name":"grantRole","label":"Give a role to an address","role":"ADMIN","params":[["role","uint64","role"],["to","address","addr"],["its wait","uint32","secs"]]},"0xb7d2b162":{"name":"revokeRole","label":"Take a role away","role":"ADMIN","params":[["role","uint64","role"],["from","address","addr"]]},"0x30cae187":{"name":"setRoleAdmin","label":"Change who manages a role","role":"ADMIN","params":[["role","uint64","role"],["new manager role","uint64","role"]]},"0x52962952":{"name":"setRoleGuardian","label":"Change who can cancel a role's calls","role":"ADMIN","params":[["role","uint64","role"],["new guardian role","uint64","role"]]},"0xa64d95ce":{"name":"setGrantDelay","label":"Change a role's grant wait","role":"ADMIN","params":[["role","uint64","role"],["new wait","uint32","secs"]]},"0xd22b5989":{"name":"setTargetAdminDelay","label":"Change a contract's admin wait","role":"ADMIN","params":[["contract","address","addr"],["new wait","uint32","secs"]]},"0x08d6122d":{"name":"setTargetFunctionRole","label":"Change which role may call vault functions","role":"ADMIN","params":[["contract","address","addr"],["functions","bytes4[]","sels"],["role","uint64","role"]]},"0x167bd395":{"name":"setTargetClosed","label":"Close or reopen a contract","role":"ADMIN","params":[["contract","address","addr"],["closed","bool","bool"]]},"0x18ff183c":{"name":"updateAuthority","label":"Move a contract to another manager","role":"ADMIN","params":[["contract","address","addr"],["new manager","address","addr"]]},"0x853551b8":{"name":"labelRole","label":"Rename a role","role":"ADMIN","params":[["role","uint64","role"],["name","string","text"]]}};
+const K = {"scheduled":"0x82a2da5dee54ea8021c6545b4444620291e07ee83be6dd57edb175062715f3b4","cancel":"0xd6bb62c6","getSchedule":"0x3adc277a"};
+const ROLE_NAMES = ['ADMIN', 'GOVERNOR', 'EMERGENCY', 'PAUSER', 'CANCELLER'];
+// The longest wait (48 h), plus the week a ready call stays executable, plus a margin: anything older can no longer run.
+const LOOKBACK_S = (48 + 7 * 24 + 2) * 3600;
+const CFG = new URLSearchParams(location.search).has('practice') ? CONFIG.practice : CONFIG.mainnet;
+
+const $ = (id) => document.getElementById(id);
+const lc = (s) => String(s || '').toLowerCase();
+const short = (a) => a.slice(0, 6) + '…' + a.slice(-4);
+const hex = (n) => '0x' + n.toString(16);
+const pad = (h) => String(h).replace(/^0x/, '').toLowerCase().padStart(64, '0');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const host = (u) => u.replace(/^https?:\/\//, '');
+async function pool(items, n, fn) {
+  const queue = items.slice();
+  await Promise.all(Array.from({ length: Math.min(n, queue.length) }, async () => { while (queue.length) await fn(queue.shift()); }));
 }
-/** One prompt for the account and Sepolia together, so MetaMask's permission covers the network it sends on. */
-async function connect(){
-  if(!window.ethereum){location.href='https://metamask.app.link/dapp/'+location.host+location.pathname;return null}
-  try{await ethereum.request({method:'wallet_requestPermissions',params:[{eth_accounts:{},'endowment:permitted-chains':{caveats:[{type:'restrictNetworkSwitching',value:[SEPOLIA]}]}}]})}
-  catch(e){if(e&&e.code===4001)throw e;await ethereum.request({method:'eth_requestAccounts'})}
-  await toSepolia();
-  const accounts=await ethereum.request({method:'eth_accounts'})||[];
-  const found=accounts.find(a=>typeof a==='string'&&a.toLowerCase()===CANCELLER);
-  if(!found){say('MetaMask gave: '+(accounts.join(', ')||'no account')+'.\nPick your canceller (0x5657…d542) when MetaMask asks which account to connect, then tap the button again.','bad');return null}
-  return found;
+
+// Public nodes, tried in order. A revert is an answer, not a failure: it is not retried elsewhere.
+class RpcError extends Error { constructor(message, revert) { super(message); this.revert = revert; } }
+async function rpc(net, method, params) {
+  let last = new RpcError('no node answered', false);
+  for (const url of net.rpcs) {
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(15000) });
+      const j = await r.json();
+      if (!j.error) return j.result;
+      const message = String(j.error.message || 'node error');
+      if (j.error.code === 3 || /revert/i.test(message)) throw new RpcError(message, true);
+      last = new RpcError(message, false);
+    } catch (e) {
+      if (e instanceof RpcError && e.revert) throw e;
+      last = e instanceof RpcError ? e : new RpcError(String((e && e.message) || e), false);
+    }
+  }
+  throw last;
 }
-$('connect').onclick=async()=>{try{const a=await connect();if(a){say('Connected as your canceller on Sepolia. Now tap Cancel it.','ok');$('cancel').disabled=false}}catch(e){say('Not connected: '+(e&&(e.message||e.code)||e),'bad')}};
-$('cancel').onclick=async()=>{
-  $('cancel').disabled=true;
-  try{
-    const from=await connect(); if(!from){$('cancel').disabled=false;return}
-    const hash=await ethereum.request({method:'eth_sendTransaction',params:[{from:from,to:MANAGER,data:DATA,value:'0x0'}]});
-    say('Sent. Waiting for the test network…\n'+hash);
-    for(;;){await new Promise(r=>setTimeout(r,2500));
-      const r=await ethereum.request({method:'eth_getTransactionReceipt',params:[hash]});
-      if(r){if(r.status==='0x1'){$('status').className='card ok';$('status').innerHTML='Cancelled. The thief\'s change can never run.<br><a href="https://sepolia.etherscan.io/tx/'+hash+'">See it on Etherscan</a>'}else{say('The cancel failed on chain: '+hash,'bad');$('cancel').disabled=false}break}}
-  }catch(e){say('Not sent: '+(e&&(e.message||e.code)||e)+' (code '+(e&&e.code)+')','bad');$('cancel').disabled=false}
-};
+
+// Every OperationScheduled in the manager's recent blocks; a range a node refuses is split in two.
+async function logsIn(net, from, to) {
+  try { return await rpc(net, 'eth_getLogs', [{ address: net.manager, topics: [K.scheduled], fromBlock: hex(from), toBlock: hex(to) }]); }
+  catch (e) {
+    if (to - from < 2000) throw e;
+    const mid = Math.floor((from + to) / 2);
+    return (await logsIn(net, from, mid)).concat(await logsIn(net, mid + 1, to));
+  }
+}
+async function scan(net) {
+  const head = Number(await rpc(net, 'eth_blockNumber', []));
+  const [a, b] = await Promise.all([rpc(net, 'eth_getBlockByNumber', [hex(head), false]), rpc(net, 'eth_getBlockByNumber', [hex(Math.max(0, head - 2000)), false])]);
+  const perBlock = Math.max(0.1, (Number(a.timestamp) - Number(b.timestamp)) / 2000);
+  const start = Math.max(net.fromBlock || 0, head - Math.ceil(LOOKBACK_S / perBlock));
+  const ranges = [];
+  for (let f = start; f <= head; f += net.chunk) ranges.push([f, Math.min(head, f + net.chunk - 1)]);
+  const logs = [], gaps = [];
+  await pool(ranges, 4, async ([f, t]) => { try { logs.push(...(await logsIn(net, f, t))); } catch { gaps.push([f, t]); } });
+  return { logs, gaps };
+}
+
+// OperationScheduled(bytes32 indexed operationId, uint32 indexed nonce, uint48 schedule, address caller, address target, bytes data)
+function parseLog(net, log) {
+  const d = log.data.slice(2), w = (i) => d.slice(64 * i, 64 * i + 64);
+  const off = Number(BigInt('0x' + w(3))) / 32, len = Number(BigInt('0x' + w(off)));
+  return {
+    net, id: lc(log.topics[1]), nonce: Number(BigInt(log.topics[2])), schedule: Number(BigInt('0x' + w(0))),
+    caller: '0x' + w(1).slice(24), target: '0x' + w(2).slice(24), data: '0x' + d.slice(64 * (off + 1), 64 * (off + 1) + len * 2),
+    tx: log.transactionHash,
+  };
+}
+function cancelData(op) {
+  const body = op.data.slice(2), len = body.length / 2;
+  return K.cancel + pad(op.caller) + pad(op.target) + pad('60') + pad(len.toString(16)) + body.padEnd(Math.ceil(len / 32) * 64, '0');
+}
+async function readyAt(op) {
+  const r = await rpc(op.net, 'eth_call', [{ to: op.net.manager, data: K.getSchedule + pad(op.id) }, 'latest']);
+  return Number(BigInt(r === '0x' ? 0 : r));
+}
+// Would `from` be allowed to cancel it? true, false (the manager refuses), or null (no node answered).
+async function trial(op, from) {
+  try { await rpc(op.net, 'eth_call', [{ from, to: op.net.manager, data: cancelData(op) }, 'latest']); return true; }
+  catch (e) { return e.revert ? false : null; }
+}
+
+// The watchers' public status: an unacknowledged owner-op-unannounced alarm names the operation and its transaction.
+async function readWatchers() {
+  const w = { reached: [], flagged: new Map() };
+  await Promise.all(CFG.monitors.map(async (m) => {
+    try {
+      const s = await (await fetch(m + '/api/v1/monitor', { signal: AbortSignal.timeout(10000) })).json();
+      w.reached.push(m);
+      for (const a of s.alarms || []) {
+        const k = /^owner-op:(0x[0-9a-fA-F]{64}):(\d+)$/.exec(a.key || '');
+        if (a.code !== 'owner-op-unannounced' || a.acknowledged || !k) continue;
+        w.flagged.set(lc(k[1]), { nonce: Number(k[2]), tx: (/(0x[0-9a-fA-F]{64})\)\s*$/.exec(a.detail || '') || [])[1] });
+      }
+    } catch { /* unreachable: listed as such */ }
+  }));
+  return w;
+}
+
+function decode(types, h) {
+  const w = (i) => h.slice(64 * i, 64 * i + 64), num = (i) => BigInt('0x' + w(i));
+  return types.map((t, slot) => {
+    const fixed = /^address\[(\d+)\]$/.exec(t);
+    if (fixed) return Array.from({ length: Number(fixed[1]) }, (_, k) => '0x' + w(slot + k).slice(24));
+    if (t === 'address') return '0x' + w(slot).slice(24);
+    if (t === 'bool') return num(slot) !== 0n;
+    if (t === 'bytes32') return '0x' + w(slot);
+    if (/^uint\d+$/.test(t)) return num(slot);
+    const off = Number(num(slot)) / 32, len = Number(num(off));
+    if (t === 'address[]') return Array.from({ length: len }, (_, k) => '0x' + w(off + 1 + k).slice(24));
+    if (t === 'bytes4[]') return Array.from({ length: len }, (_, k) => '0x' + w(off + 1 + k).slice(0, 8));
+    if (t === 'string') return new TextDecoder().decode(Uint8Array.from(h.slice(64 * (off + 1), 64 * (off + 1) + len * 2).match(/../g) || [], (x) => parseInt(x, 16)));
+    return '…';
+  });
+}
+function duration(s) {
+  if (!s) return 'none';
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? `${h} h ${m} min` : m ? `${m} min` : `${s} s`;
+}
+function units(v, d) {
+  if (!d) return v.toString();
+  const s = v.toString().padStart(d + 1, '0'), f = s.slice(-d).replace(/0+$/, '');
+  return s.slice(0, -d) + (f ? '.' + f : '');
+}
+function who(net, a) {
+  const tag = lc(a) === lc(CFG.safe) ? ' (the team Safe)' : lc(a) === lc(CFG.canceller) ? ' (your canceller)' : lc(a) === lc(net.vault) ? ' (the vault)' : lc(a) === lc(net.manager) ? " (the vault's manager)" : '';
+  return esc(a + tag);
+}
+function show(net, kind, v) {
+  if (kind === 'addrs') return v.map((a) => who(net, a)).join('<br>');
+  if (kind === 'addr') return who(net, v);
+  if (kind === 'role') return esc(ROLE_NAMES[Number(v)] || 'role ' + v);
+  if (kind === 'secs') return esc(duration(Number(v)));
+  if (kind === 'amount') return esc(units(v, net.decimals) + ' ' + net.token);
+  if (kind === 'bps') return esc(Number(v) / 100 + '%');
+  if (kind === 'sels') return v.map((s) => esc((CALLS[s] && CALLS[s].name) || s)).join(', ');
+  return esc(String(v));
+}
+function details(op, c) {
+  if (!c || !c.params.length) return '';
+  let vals;
+  try { vals = decode(c.params.map((p) => p[1]), op.data.slice(10)); } catch { return ''; }
+  return '<div class="mono" style="margin-top:8px">' + c.params.map((p, i) => `${esc(p[0])}: ${show(op.net, p[2], vals[i])}`).join('<br>') + '</div>';
+}
+const when = (ts) => new Date(ts * 1000).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+function say(text, cls) { const s = $('status'); s.hidden = false; s.className = 'card ' + (cls || ''); s.textContent = text; }
+function sayHtml(html, cls) { const s = $('status'); s.hidden = false; s.className = 'card ' + (cls || ''); s.innerHTML = html; }
+
+// One prompt for the account and the network together, so MetaMask's permission covers the chain it sends on.
+async function connect(net) {
+  if (!window.ethereum) { location.href = 'https://metamask.app.link/dapp/' + location.host + location.pathname + location.search; return null; }
+  const chain = hex(net.chainId);
+  try { await ethereum.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {}, 'endowment:permitted-chains': { caveats: [{ type: 'restrictNetworkSwitching', value: [chain] }] } }] }); }
+  catch (e) { if (e && e.code === 4001) throw e; await ethereum.request({ method: 'eth_requestAccounts' }); }
+  try { await ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chain }] }); }
+  catch (e) {
+    if (e && (e.code === 4902 || (e.data && e.data.originalError && e.data.originalError.code === 4902)) && net.add) await ethereum.request({ method: 'wallet_addEthereumChain', params: [{ chainId: chain, ...net.add }] });
+    else throw e;
+  }
+  const accounts = (await ethereum.request({ method: 'eth_accounts' })) || [];
+  return accounts.find((a) => lc(a) === lc(CFG.canceller)) || accounts[0] || null;
+}
+
+async function cancelOp(op, button) {
+  const net = op.net;
+  button.disabled = true;
+  try {
+    const from = await connect(net);
+    if (!from) { button.disabled = false; return; }
+    if ((await trial(op, from)) === false) {
+      say(`MetaMask connected ${from}, which can't cancel this on ${net.name}. When MetaMask asks which account to connect, choose your canceller ${short(CFG.canceller)}, then tap again.`, 'bad');
+      button.disabled = false;
+      return;
+    }
+    const hash = await ethereum.request({ method: 'eth_sendTransaction', params: [{ from, to: net.manager, data: cancelData(op), value: '0x0' }] });
+    say(`Sent. Waiting for ${net.name}…\n${hash}`);
+    for (let i = 0; i < 200; i++) {
+      await sleep(3000);
+      let r = null;
+      try { r = await ethereum.request({ method: 'eth_getTransactionReceipt', params: [hash] }); } catch { try { r = await rpc(net, 'eth_getTransactionReceipt', [hash]); } catch { /* try again */ } }
+      if (!r) continue;
+      if (r.status === '0x1') {
+        sayHtml(`Cancelled on ${esc(net.name)}. It can never run.<br><a href="${net.explorer}/tx/${hash}">See it on the explorer</a>`, 'ok');
+        button.remove();
+        setTimeout(check, 4000);
+      } else { say(`The cancel failed on ${net.name}: ${hash}`, 'bad'); button.disabled = false; }
+      return;
+    }
+    say(`Still waiting for ${net.name}. Look it up on the explorer: ${hash}`);
+  } catch (e) { say('Not sent: ' + ((e && (e.message || e.code)) || e), 'bad'); button.disabled = false; }
+}
+
+function render(op, w) {
+  const net = op.net, sel = op.data.slice(0, 10).toLowerCase(), c = CALLS[sel];
+  const f = w.flagged.get(op.id), flagged = Boolean(f && f.nonce === op.nonce);
+  const watched = CFG.monitors.length > 0, heard = w.reached.length > 0;
+  const el = document.createElement('div');
+  el.className = 'card' + (flagged ? ' alarm' : '');
+  const now = Date.now() / 1000;
+  const due = op.readyAt <= now ? '<b class="bad">It can run now: cancel it right away.</b>' : `It can run after <b>${esc(when(op.readyAt))}</b>, in ${esc(duration(Math.round(op.readyAt - now)))}.`;
+  const badge = !watched ? '<span class="badge grey">Practice</span>' : flagged ? '<span class="badge red">Alarm: nobody announced this</span>' : heard ? '<span class="badge grey">Announced: no alarm</span>' : '<span class="badge grey">Watchers unreachable: ask the team whether it was announced</span>';
+  const by = lc(op.caller) === lc(CFG.safe) ? 'the team Safe' : `<b class="bad">${esc(op.caller)}, not the team Safe</b>`;
+  el.innerHTML = `${badge}<div><b>${esc(c ? c.label : 'An unknown call (' + sel + ')')}</b> on ${esc(net.name)}</div><div class="muted">Queued by ${by}. ${due}</div>${details(op, c)}`;
+  if (op.allowed === false) {
+    const p = document.createElement('p');
+    p.className = 'bad';
+    p.textContent = lc(op.target) === lc(net.manager) || !c || !['GOVERNOR', 'EMERGENCY'].includes(c.role)
+      ? "Cancellers can't stop this one: only the Safe can. Tell Kaspador and the Safe owners now."
+      : `Your canceller can't cancel this on ${net.name}. Check that it holds the canceller role there.`;
+    el.append(p);
+  } else {
+    const b = document.createElement('button');
+    const sure = flagged || !watched || !heard;
+    b.textContent = sure ? 'Cancel it' : 'Cancel anyway';
+    if (!sure) b.className = 'second';
+    b.onclick = () => cancelOp(op, b);
+    el.append(b);
+  }
+  el.insertAdjacentHTML('beforeend', `<div class="mono" style="margin-top:10px">operation ${esc(op.id)}<br><a href="${net.explorer}/tx/${esc(op.tx)}">queued in ${esc(short(op.tx))}</a></div>`);
+  $('ops').append(el);
+}
+
+async function check() {
+  $('refresh').disabled = true;
+  $('ops').innerHTML = '';
+  const nets = CFG.networks.filter((n) => n.manager);
+  if (!nets.length) {
+    $('summary').innerHTML = `The real vaults aren't live yet. This page starts watching them on launch day.<br><a href="?practice">Open the Sepolia practice</a>`;
+    $('refresh').disabled = false;
+    return;
+  }
+  const names = nets.map((n) => n.name).join(' and ');
+  $('summary').textContent = `Reading ${names}…`;
+  const [w, ...scans] = await Promise.all([readWatchers(), ...nets.map((n) => scan(n).catch(() => null))]);
+  const ops = new Map();
+  nets.forEach((n, i) => {
+    for (const l of (scans[i] && scans[i].logs) || []) {
+      const op = parseLog(n, l), k = n.key + op.id;
+      if (!ops.has(k) || ops.get(k).nonce < op.nonce) ops.set(k, op);
+    }
+  });
+  // An alarm the scan did not reach (older blocks, a node that failed): read its transaction instead.
+  for (const [id, f] of w.flagged) {
+    if (!f.tx || [...ops.values()].some((o) => o.id === id)) continue;
+    for (const n of nets) {
+      try {
+        const r = await rpc(n, 'eth_getTransactionReceipt', [f.tx]);
+        for (const l of (r && r.logs) || []) if (lc(l.address) === lc(n.manager) && lc(l.topics[0]) === K.scheduled && lc(l.topics[1]) === id) ops.set(n.key + id, parseLog(n, l));
+      } catch { /* not on this chain */ }
+    }
+  }
+  const pending = [];
+  await pool([...ops.values()], 4, async (op) => {
+    try { op.readyAt = await readyAt(op); } catch { op.readyAt = op.schedule; }
+    if (op.readyAt) pending.push(op);
+  });
+  pending.sort((a, b) => a.readyAt - b.readyAt);
+  await pool(pending, 4, async (op) => { op.allowed = await trial(op, CFG.canceller); });
+  const notes = [];
+  nets.forEach((n, i) => {
+    if (!scans[i]) notes.push(`Couldn't read ${n.name} just now: check again.`);
+    else if (scans[i].gaps.length) notes.push(`Some older ${n.name} blocks didn't load: check again.`);
+  });
+  if (CFG.monitors.length) notes.push('Watchers: ' + CFG.monitors.map((m) => host(m) + (w.reached.includes(m) ? ' ok' : ' unreachable')).join(' · '));
+  const time = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const head = !pending.length
+    ? `<b class="ok">Nothing is queued.</b> Checked ${esc(names)} at ${time}.`
+    : `<b>${pending.length === 1 ? 'One change is' : pending.length + ' changes are'} queued.</b> ` + (CFG.monitors.length ? 'Cancel what has a red alarm, unless the team tells you otherwise.' : 'Practice: cancel it.');
+  $('summary').innerHTML = head + notes.map((t) => `<div class="muted">${esc(t)}</div>`).join('');
+  for (const op of pending) render(op, w);
+  $('refresh').disabled = false;
+}
+
+$('mode').textContent = CFG.label;
+$('foot').textContent = `Your canceller: ${CFG.canceller}. This page only reads public data until you confirm a cancel in MetaMask.`;
+$('refresh').onclick = check;
+check();
 </script></main></body></html>
