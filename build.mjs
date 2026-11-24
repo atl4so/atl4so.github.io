@@ -19,6 +19,9 @@ const VAULT_CALLS = [
   ['setSigners(address[5])', "Replace the vault's 5 signers", 'GOVERNOR', [['new signers', 'addrs']]],
   ['setSigners(address[])', "Replace the vault's signers", 'GOVERNOR', [['new signers', 'addrs']]], // the practice's stand-in vault
   ['setFees(uint16,uint256,uint256)', 'Change the bridge fees', 'GOVERNOR', [['fee', 'bps'], ['smallest deposit fee', 'amount'], ['smallest payout fee', 'amount']]],
+  ['setDepositSurge(uint16,uint256)', 'Change the busy-hours deposit fee', 'GOVERNOR', [['surge fee', 'bps'], ['capacity', 'amount']]],
+  ['reinstateRelease(bytes32)', 'Reinstate a cancelled payout', 'GOVERNOR', [['payout', 'hash']]],
+  ['reinstateRefund(uint64)', 'Reinstate a cancelled refund', 'GOVERNOR', [['refund number', 'num']]],
   ['setDepositLimits(uint256,uint256)', 'Change the deposit limits', 'GOVERNOR', [['smallest deposit', 'amount'], ['largest deposit', 'amount']]],
   ['setReleaseLimits(uint256,uint256)', 'Change the payout limits', 'GOVERNOR', [['capacity', 'amount'], ['refill per second', 'amount']]],
   ['setPayoutDelay(uint64)', 'Change the payout wait', 'GOVERNOR', [['new wait', 'secs']]],

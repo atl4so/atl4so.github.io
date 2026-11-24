@@ -50,9 +50,11 @@ async function pool(items, n, fn) {
 class RpcError extends Error { constructor(message, revert) { super(message); this.revert = revert; } }
 async function rpc(net, method, params) {
   let last = new RpcError('no node answered', false);
+  // BNB Chain's only free log node takes 12 to 16 s for a 50 000-block range (24 Nov 2026), so logs get 40 s.
+  const wait = method === 'eth_getLogs' ? 40000 : 15000;
   for (const url of net.rpcs) {
     try {
-      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(15000) });
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(wait) });
       const j = await r.json();
       if (!j.error) return j.result;
       const message = String(j.error.message || 'node error');
